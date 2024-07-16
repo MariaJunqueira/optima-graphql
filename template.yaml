@@ -3,7 +3,7 @@ Resources:
   GraphQLApi:
     Type: AWS::AppSync::GraphQLApi
     Properties:
-      Name: LocationsApi
+      Name: Potato
       AuthenticationType: API_KEY
 
   GraphQLSchema:
