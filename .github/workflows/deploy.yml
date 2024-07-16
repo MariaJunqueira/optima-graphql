@@ -50,4 +50,4 @@ jobs:
 
       - name: Verify Stack Update
         run: |
-          aws cloudformation describe-stacks --stack-name your-appsync-stack-name
+          aws cloudformation describe-stacks --stack-name potato
