@@ -1,0 +1,218 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  GraphQLApi:
+    Type: AWS::AppSync::GraphQLApi
+    Properties:
+      Name: LocationsApi
+      AuthenticationType: API_KEY
+
+  GraphQLSchema:
+    Type: AWS::AppSync::GraphQLSchema
+    Properties:
+      ApiId: !GetAtt GraphQLApi.ApiId
+      Definition: |
+        type Query {
+          getGarages: [Garage]
+        }
+        type Mutation {
+          openDoor(id: ID!): Response
+        }
+        type Garage {
+          id: ID!
+          garageName: String!
+          name: String!
+          zoneNumber: Int!
+          countryCode: String!
+        }
+        input GarageSearch {
+          zoneNumber: Int
+          garageName: String
+          latitude: Float
+          longitude: Float
+          searchRadius: Int
+        }
+        type Response {
+          message: String
+        }
+
+  GraphQLApiKey:
+    Type: AWS::AppSync::ApiKey
+    Properties:
+      ApiId: !GetAtt GraphQLApi.ApiId
+
+  HTTPDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      ApiId: !GetAtt GraphQLApi.ApiId
+      Name: GarageHTTPDataSource
+      Type: HTTP
+      HttpConfig:
+        Endpoint: '{{resolve:ssm:/api_url}}'
+      ServiceRoleArn: !GetAtt AppSyncServiceRole.Arn
+
+  TokenDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:
+      ApiId: !GetAtt GraphQLApi.ApiId
+      Name: TokenHTTPDataSource
+      Type: HTTP
+      HttpConfig:
+        Endpoint: '{{resolve:ssm:/login_url}}'
+      ServiceRoleArn: !GetAtt AppSyncServiceRole.Arn
+
+  AppSyncServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: appsync.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AppSyncServicePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - appsync:*
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/client_id
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/client_secret
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/grant_type
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/api_url
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/login_url
+
+  GetGarageFunction:
+    Type: AWS::AppSync::FunctionConfiguration
+    Properties:
+      ApiId: !GetAtt GraphQLApi.ApiId
+      Name: GetGarageFunction
+      DataSourceName: !GetAtt HTTPDataSource.Name
+      FunctionVersion: '2018-05-29'
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "method": "GET",
+          "resourcePath": "/v1/garages",
+          "params": {
+            "headers": {
+              "Authorization": "Bearer $ctx.prev.result",
+            }
+          }
+        }
+      ResponseMappingTemplate: |
+        #if($ctx.result.statusCode == 200)
+          $ctx.result.body
+        #else
+          $util.error("Failed to get garage", $util.toJson($ctx.result))
+        #end
+
+  GetGaragePipelineResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt GraphQLApi.ApiId
+      TypeName: Query
+      FieldName: getGarages
+      Kind: PIPELINE
+      PipelineConfig:
+        Functions:
+          - !GetAtt RequestTokenFunction.FunctionId
+          - !GetAtt GetGarageFunction.FunctionId
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "operation": "Invoke"
+        }
+      ResponseMappingTemplate: |
+        $util.toJson($ctx.result)
+
+  RequestTokenFunction:
+    Type: AWS::AppSync::FunctionConfiguration
+    Properties:
+      ApiId: !GetAtt GraphQLApi.ApiId
+      Name: RequestTokenFunction
+      DataSourceName: !GetAtt TokenDataSource.Name
+      FunctionVersion: '2018-05-29'
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "method": "POST",
+          "resourcePath": "/connect/token",
+          "params": {
+            "headers": {
+              "Content-Type": "application/x-www-form-urlencoded"
+            },
+            "body": "client_id={{resolve:ssm:/client_id}}&client_secret={{resolve:ssm:/client_secret}}&grant_type={{resolve:ssm:/grant_type}}"
+          }
+        }
+      ResponseMappingTemplate: |
+        #if($ctx.result.statusCode == 200)
+          ## $util.toJson($ctx.result.body)
+          $util.qr($ctx.stash.put("access_token", $util.parseJson($ctx.result.body).access_token))
+          $util.toJson($ctx.stash.access_token)
+        #else
+          $util.error("Failed to request token", $util.toJson($ctx.result))
+        #end
+
+  OpenDoorFunction:
+    Type: AWS::AppSync::FunctionConfiguration
+    Properties:
+      ApiId: !GetAtt GraphQLApi.ApiId
+      Name: OpenDoorFunction
+      DataSourceName: !GetAtt HTTPDataSource.Name
+      FunctionVersion: '2018-05-29'
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "method": "POST",
+          "resourcePath": "/$ctx.args.id/open",
+          "params": {
+            "headers": {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer $ctx.prev.result.access_token"
+            },
+            "body": {
+              "id": $ctx.args.id
+            }
+          }
+        }
+      ResponseMappingTemplate: |
+        #if($ctx.result.statusCode == 200)
+          $util.toJson($ctx.result.body)
+        #else
+          $util.error("Failed to open door", $ctx.result.statusCode)
+        #end
+
+  OpenDoorPipelineResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt GraphQLApi.ApiId
+      TypeName: Mutation
+      FieldName: openDoor
+      Kind: PIPELINE
+      PipelineConfig:
+        Functions:
+          - !GetAtt RequestTokenFunction.FunctionId
+          - !GetAtt OpenDoorFunction.FunctionId
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "operation": "Invoke"
+        }
+      ResponseMappingTemplate: |
+        $util.toJson($ctx.result)
+
+Outputs:
+  GraphQLApiUrl:
+    Value: !GetAtt GraphQLApi.GraphQLUrl
+    Description: The URL of the AppSync GraphQL API
+  GraphQLApiId:
+    Value: !GetAtt GraphQLApi.ApiId
+    Description: The ID of the AppSync GraphQL API
