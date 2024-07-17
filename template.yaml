@@ -23,13 +23,32 @@ Resources:
           name: String!
           zoneNumber: Int!
           countryCode: String!
+          details: GarageDetails
         }
-        input GarageSearch {
-          zoneNumber: Int
-          garageName: String
+        type GarageDetails {
+          garageId: ID!
+          garageName: String!
+          name: String!
           latitude: Float
           longitude: Float
-          searchRadius: Int
+          streetAddress: String
+          postalCode: String
+          city: String
+          countryCode: String
+          hasBarrier: Boolean
+          zoneNumber: Int
+          isSuspended: Boolean
+          garageSuspensions: [GarageSuspension]
+          doors: [Door]
+          garageInformation: [GarageInformation]
+          isPayPerMinute: Boolean
+          isPrepaid: Boolean
+          isReservable: Boolean
+          active: Boolean
+          region: String
+          timezone: String
+          capacity: Int
+          photos: [GarageImage]
         }
         type Response {
           message: String
@@ -154,9 +173,8 @@ Resources:
         }
       ResponseMappingTemplate: |
         #if($ctx.result.statusCode == 200)
-          ## $util.toJson($ctx.result.body)
-          $util.qr($ctx.stash.put("access_token", $util.parseJson($ctx.result.body).access_token))
-          $util.toJson($ctx.stash.access_token)
+          $util.qr($ctx.info.variables.put("access_token", $util.parseJson($ctx.result.body).access_token))
+          $util.toJson($ctx.info.variables.access_token)
         #else
           $util.error("Failed to request token", $util.toJson($ctx.result))
         #end
@@ -201,6 +219,51 @@ Resources:
         Functions:
           - !GetAtt RequestTokenFunction.FunctionId
           - !GetAtt OpenDoorFunction.FunctionId
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "operation": "Invoke"
+        }
+      ResponseMappingTemplate: |
+        $util.toJson($ctx.result)
+
+  GetGarageDetailsFunction:
+    Type: AWS::AppSync::FunctionConfiguration
+    Properties:
+      ApiId: !GetAtt GraphQLApi.ApiId
+      Name: GetGarageDetailsFunction
+      DataSourceName: !GetAtt HTTPDataSource.Name
+      FunctionVersion: '2018-05-29'
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "method": "GET",
+          "resourcePath": "/v1/garages/$ctx.source.id",
+          "params": {
+            "headers": {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer $ctx.info.variables.access_token"
+            }
+          }
+        }
+      ResponseMappingTemplate: |
+        #if($ctx.result.statusCode == 200)
+          $util.toJson($ctx.result.body)
+        #else
+          $util.error("Failed to get garage details", $ctx.result.statusCode)
+        #end
+
+  GetGarageDetailsPipelineResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt GraphQLApi.ApiId
+      TypeName: Garage
+      FieldName: details
+      Kind: PIPELINE
+      PipelineConfig:
+        Functions:
+          - !GetAtt RequestTokenFunction.FunctionId
+          - !GetAtt GetGarageDetailsFunction.FunctionId
       RequestMappingTemplate: |
         {
           "version": "2018-05-29",
