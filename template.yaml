@@ -50,6 +50,33 @@ Resources:
           capacity: Int
           photos: [GarageImage]
         }
+        type GarageSuspension {
+          id: ID!
+          suspensionStartTime: String
+          suspensionEndTime: String
+          active: Boolean
+        }
+        type GarageImage {
+          description: String
+          urls: [GarageUrl]
+        }
+        type GarageInformation {
+          id: ID!
+          countryCode: String
+          message: String
+        }
+        type GarageUrl {
+          name: String
+          size: String
+          url: String
+        }
+        type Door {
+          doorId: ID!
+          doorType: String
+          description: String
+          latitude: Float
+          longitude: Float
+        }
         type Response {
           message: String
         }
