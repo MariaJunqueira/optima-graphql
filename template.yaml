@@ -275,7 +275,7 @@ Resources:
         }
       ResponseMappingTemplate: |
         #if($ctx.result.statusCode == 200)
-          $util.toJson($ctx.result.body)
+          $ctx.result.body
         #else
           $util.error("Failed to get garage details", $ctx.result.statusCode)
         #end
@@ -289,7 +289,6 @@ Resources:
       Kind: PIPELINE
       PipelineConfig:
         Functions:
-          - !GetAtt RequestTokenFunction.FunctionId
           - !GetAtt GetGarageDetailsFunction.FunctionId
       RequestMappingTemplate: |
         {
