@@ -87,6 +87,7 @@ Resources:
           latitude: Float
           longitude: Float
           searchRadius: Int
+          productType: String
         }
 
   GraphQLApiKey:
@@ -229,7 +230,8 @@ Resources:
           "resourcePath": "/v1/garages/search",
           "params": {
             "headers": {
-              "Authorization": "Bearer $ctx.prev.result"
+              "Authorization": "Bearer $ctx.prev.result",
+              "Content-Type": "application/json"
             },
             "query": $utils.toJson($ctx.args.params)
           }
