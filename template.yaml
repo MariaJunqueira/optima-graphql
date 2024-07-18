@@ -12,7 +12,8 @@ Resources:
       ApiId: !GetAtt GraphQLApi.ApiId
       Definition: |
         type Query {
-          getGarages(params: GarageSearch): [Garage]
+          getGarages: [Garage]
+          searchGarages(params: GarageSearch): [GarageDetails]
         }
         type Mutation {
           openDoor(id: ID!): Response
@@ -213,6 +214,52 @@ Resources:
         #else
           $util.error("Failed to request token", $util.toJson($ctx.result))
         #end
+
+  SearchGarageFunction:
+    Type: AWS::AppSync::FunctionConfiguration
+    Properties:
+      ApiId: !GetAtt GraphQLApi.ApiId
+      Name: SearchGarageFunction
+      DataSourceName: !GetAtt HTTPDataSource.Name
+      FunctionVersion: '2018-05-29'
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "method": "GET",
+          "resourcePath": "/v1/garages/search",
+          "params": {
+            "headers": {
+              "Authorization": "Bearer $ctx.prev.result"
+            },
+            "query": $utils.toJson($ctx.args.params)
+          }
+        }
+      ResponseMappingTemplate: |
+        #if($ctx.result.statusCode == 200)
+          $ctx.result.body
+        #else
+          $util.error("Failed to search garages", $util.toJson($ctx.result))
+        #end
+
+  SearchGaragePipelineResolver:
+    Type: AWS::AppSync::Resolver
+    Properties:
+      ApiId: !GetAtt GraphQLApi.ApiId
+      TypeName: Query
+      FieldName: searchGarages
+      Kind: PIPELINE
+      PipelineConfig:
+        Functions:
+          - !GetAtt RequestTokenFunction.FunctionId
+          - !GetAtt SearchGarageFunction.FunctionId
+      RequestMappingTemplate: |
+        {
+          "version": "2018-05-29",
+          "operation": "Invoke",
+          "payload": $utils.toJson($ctx.args)
+        }
+      ResponseMappingTemplate: |
+        $util.toJson($ctx.result)
 
   OpenDoorFunction:
     Type: AWS::AppSync::FunctionConfiguration
