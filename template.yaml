@@ -80,6 +80,13 @@ Resources:
         type Response {
           message: String
         }
+        input GarageSearch {
+          zoneNumber: Int
+          garageName: String
+          latitude: Float
+          longitude: Float
+          searchRadius: Int
+        }
 
   GraphQLApiKey:
     Type: AWS::AppSync::ApiKey
